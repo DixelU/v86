@@ -156,6 +156,7 @@ pub const PAGE_TABLE_ACCESSED_MASK: i32 = 1 << 5;
 pub const PAGE_TABLE_DIRTY_MASK: i32 = 1 << 6;
 pub const PAGE_TABLE_PSE_MASK: i32 = 1 << 7;
 pub const PAGE_TABLE_GLOBAL_MASK: i32 = 1 << 8;
+pub const PAGE_TABLE_NX_MASK: i32 = 1 << 9;
 pub const MMAP_BLOCK_BITS: i32 = 17;
 pub const MMAP_BLOCK_SIZE: i32 = 1 << MMAP_BLOCK_BITS;
 pub const CR0_PE: i32 = 1;
@@ -244,6 +245,7 @@ pub const TLB_NO_USER: i32 = 1 << 2;
 pub const TLB_IN_MAPPED_RANGE: i32 = 1 << 3;
 pub const TLB_GLOBAL: i32 = 1 << 4;
 pub const TLB_HAS_CODE: i32 = 1 << 5;
+pub const TLB_NX: i32 = 1 << 9;
 pub const IVT_SIZE: u32 = 0x400;
 pub const CPU_EXCEPTION_DE: i32 = 0;
 pub const CPU_EXCEPTION_DB: i32 = 1;
@@ -1795,11 +1797,11 @@ pub unsafe fn readable_or_pagefault(addr: i32, size: i32) -> OrPageFault<()> {
     dbg_assert!(size > 0);
 
     let user = *cpl == 3;
-    translate_address(addr, false, user, false, true)?;
+    translate_address(addr, false, user, false, true, false)?;
 
     let end = addr + size - 1 & !0xFFF;
     if addr & !0xFFF != end & !0xFFF {
-        translate_address(end, false, user, false, true)?;
+        translate_address(end, false, user, false, true, false)?;
     }
 
     return Ok(());
@@ -1810,36 +1812,39 @@ pub unsafe fn writable_or_pagefault(addr: i32, size: i32) -> OrPageFault<()> {
     dbg_assert!(size > 0);
 
     let user = *cpl == 3;
-    translate_address(addr, true, user, false, true)?;
+    translate_address(addr, true, user, false, true, false)?;
 
     let end = addr + size - 1 & !0xFFF;
     if addr & !0xFFF != end & !0xFFF {
-        translate_address(end, true, user, false, true)?;
+        translate_address(end, true, user, false, true, false)?;
     }
 
     return Ok(());
 }
 
 pub fn translate_address_read_no_side_effects(address: i32) -> OrPageFault<u32> {
-    unsafe { translate_address(address, false, *cpl == 3, false, false) }
+    unsafe { translate_address(address, false, *cpl == 3, false, false, false) }
 }
 pub fn translate_address_read(address: i32) -> OrPageFault<u32> {
-    unsafe { translate_address(address, false, *cpl == 3, false, true) }
+    unsafe { translate_address(address, false, *cpl == 3, false, true, false) }
 }
 pub unsafe fn translate_address_read_jit(address: i32) -> OrPageFault<u32> {
-    translate_address(address, false, *cpl == 3, true, true)
+    translate_address(address, false, *cpl == 3, true, true, false)
+}
+pub fn translate_address_read_exec(address: i32) -> OrPageFault<u32> {
+    unsafe { translate_address(address, false, *cpl == 3, false, true, true) }
 }
 
 pub unsafe fn translate_address_write(address: i32) -> OrPageFault<u32> {
-    translate_address(address, true, *cpl == 3, false, true)
+    translate_address(address, true, *cpl == 3, false, true, false)
 }
 pub unsafe fn translate_address_write_jit_and_can_skip_dirty(
     address: i32,
 ) -> OrPageFault<(u32, bool)> {
     let mut entry = tlb_data[(address as u32 >> 12) as usize];
     let user = *cpl == 3;
-    if entry & (TLB_VALID | if user { TLB_NO_USER } else { 0 } | TLB_READONLY) != TLB_VALID {
-        entry = do_page_walk(address, true, user, true, true)?.get();
+    if entry & (TLB_VALID | if user { TLB_NO_USER } else { 0 } | TLB_READONLY | TLB_NX) != TLB_VALID {
+        entry = do_page_walk(address, true, user, true, true, false)?.get();
     }
     Ok((
         (entry & !0xFFF ^ address) as u32 - memory::mem8 as u32,
@@ -1848,10 +1853,10 @@ pub unsafe fn translate_address_write_jit_and_can_skip_dirty(
 }
 
 pub unsafe fn translate_address_system_read(address: i32) -> OrPageFault<u32> {
-    translate_address(address, false, false, false, true)
+    translate_address(address, false, false, false, true, false)
 }
 pub unsafe fn translate_address_system_write(address: i32) -> OrPageFault<u32> {
-    translate_address(address, true, false, false, true)
+    translate_address(address, true, false, false, true, false)
 }
 
 #[inline(always)]
@@ -1861,15 +1866,17 @@ pub unsafe fn translate_address(
     user: bool,
     jit: bool,
     side_effects: bool,
+    for_execution: bool,
 ) -> OrPageFault<u32> {
     let mut entry = tlb_data[(address as u32 >> 12) as usize];
     if entry
         & (TLB_VALID
             | if user { TLB_NO_USER } else { 0 }
             | if for_writing { TLB_READONLY } else { 0 })
+            | if for_execution { 0 } else { TLB_NX }
         != TLB_VALID
     {
-        entry = do_page_walk(address, for_writing, user, jit, side_effects)?.get();
+        entry = do_page_walk(address, for_writing, user, jit, side_effects, !for_execution)?.get();
     }
     Ok((entry & !0xFFF ^ address) as u32 - memory::mem8 as u32)
 }
@@ -1877,8 +1884,8 @@ pub unsafe fn translate_address(
 pub unsafe fn translate_address_write_and_can_skip_dirty(address: i32) -> OrPageFault<(u32, bool)> {
     let mut entry = tlb_data[(address as u32 >> 12) as usize];
     let user = *cpl == 3;
-    if entry & (TLB_VALID | if user { TLB_NO_USER } else { 0 } | TLB_READONLY) != TLB_VALID {
-        entry = do_page_walk(address, true, user, false, true)?.get();
+    if entry & (TLB_VALID | if user { TLB_NO_USER } else { 0 } | TLB_READONLY | TLB_NX) != TLB_VALID {
+        entry = do_page_walk(address, true, user, false, true, false)?.get();
     }
     Ok((
         (entry & !0xFFF ^ address) as u32 - memory::mem8 as u32,
@@ -1904,6 +1911,7 @@ pub unsafe fn do_page_walk(
     user: bool,
     jit: bool,
     side_effects: bool,
+    mut no_execute: bool,
 ) -> OrPageFault<std::num::NonZeroI32> {
     let global;
     let mut allow_user = true;
@@ -1927,7 +1935,7 @@ pub unsafe fn do_page_walk(
             let pdpt_entry = *reg_pdpte.offset(((addr as u32) >> 30) as isize);
             if pdpt_entry as i32 & PAGE_TABLE_PRESENT_MASK == 0 {
                 if side_effects {
-                    trigger_pagefault(addr, false, for_writing, user, jit);
+                    trigger_pagefault(addr, false, for_writing, user, jit, no_execute);
                 }
                 return Err(());
             }
@@ -1939,22 +1947,23 @@ pub unsafe fn do_page_walk(
                 page_dir_entry as u64 & 0x7FFF_FFFF_0000_0000 == 0,
                 "Unsupported: Page directory entry larger than 32 bits"
             );
-            dbg_assert!(
-                page_dir_entry & 0x8000_0000_0000_0000u64 as i64 == 0,
-                "Unsupported: NX bit"
-            );
+
+            no_execute &= page_dir_entry & 0x8000_0000_0000_0000u64 as i64 != 0;
 
             (page_dir_addr, page_dir_entry as i32)
         }
         else {
             let page_dir_addr = *cr.offset(3) as u32 + (((addr as u32) >> 22) << 2);
             let page_dir_entry = memory::read32s(page_dir_addr);
+
+            no_execute &= false; // in non PAE modes NX bit is disabled
+
             (page_dir_addr, page_dir_entry)
         };
 
         if page_dir_entry & PAGE_TABLE_PRESENT_MASK == 0 {
             if side_effects {
-                trigger_pagefault(addr, false, for_writing, user, jit);
+                trigger_pagefault(addr, false, for_writing, user, jit, no_execute);
             }
             return Err(());
         }
@@ -1962,13 +1971,18 @@ pub unsafe fn do_page_walk(
         let kernel_write_override = !user && 0 == cr0 & CR0_WP;
         let mut allow_write = page_dir_entry & PAGE_TABLE_RW_MASK != 0;
         allow_user &= page_dir_entry & PAGE_TABLE_USER_MASK != 0;
+        let allow_execution = page_dir_entry & PAGE_TABLE_NX_MASK != 0;
 
         if 0 != page_dir_entry & PAGE_TABLE_PSE_MASK && 0 != cr4 & CR4_PSE {
             // size bit is set
 
-            if for_writing && !allow_write && !kernel_write_override || user && !allow_user {
+            let fault_at_write = for_writing && !allow_write && !kernel_write_override;
+            let fault_user = user && !allow_user;
+            let fault_at_execution = !no_execute && !allow_execution;
+
+            if fault_at_write || fault_user || fault_at_execution {
                 if side_effects {
-                    trigger_pagefault(addr, true, for_writing, user, jit);
+                    trigger_pagefault(addr, true, for_writing, user, jit, no_execute);
                 }
                 return Err(());
             }
@@ -1977,7 +1991,8 @@ pub unsafe fn do_page_walk(
 
             let new_page_dir_entry = page_dir_entry
                 | PAGE_TABLE_ACCESSED_MASK
-                | if for_writing { PAGE_TABLE_DIRTY_MASK } else { 0 };
+                | if for_writing { PAGE_TABLE_DIRTY_MASK } else { 0 }
+                | if no_execute { PAGE_TABLE_NX_MASK } else { 0 };
 
             if side_effects && page_dir_entry != new_page_dir_entry {
                 memory::write8(page_dir_addr, new_page_dir_entry);
@@ -2000,10 +2015,8 @@ pub unsafe fn do_page_walk(
                     page_table_entry as u64 & 0x7FFF_FFFF_0000_0000 == 0,
                     "Unsupported: Page table entry larger than 32 bits"
                 );
-                dbg_assert!(
-                    page_table_entry & 0x8000_0000_0000_0000u64 as i64 == 0,
-                    "Unsupported: NX bit"
-                );
+
+                no_execute &= page_table_entry & 0x8000_0000_0000_0000u64 as i64 != 0;
 
                 (page_table_addr, page_table_entry as i32)
             }
@@ -2011,19 +2024,24 @@ pub unsafe fn do_page_walk(
                 let page_table_addr =
                     (page_dir_entry as u32 & 0xFFFFF000) + (((addr as u32 >> 12) & 0x3FF) << 2);
                 let page_table_entry = memory::read32s(page_table_addr);
+
+                no_execute &= false; // in non PAE modes NX bit is disabled
+
                 (page_table_addr, page_table_entry)
             };
 
             let present = page_table_entry & PAGE_TABLE_PRESENT_MASK != 0;
             allow_write &= page_table_entry & PAGE_TABLE_RW_MASK != 0;
             allow_user &= page_table_entry & PAGE_TABLE_USER_MASK != 0;
+            let allow_execution = page_dir_entry & PAGE_TABLE_NX_MASK != 0;
 
             if !present
                 || for_writing && !allow_write && !kernel_write_override
                 || user && !allow_user
+                || !no_execute && !allow_execution
             {
                 if side_effects {
-                    trigger_pagefault(addr, present, for_writing, user, jit);
+                    trigger_pagefault(addr, present, for_writing, user, jit, no_execute);
                 }
                 return Err(());
             }
@@ -2089,7 +2107,8 @@ pub unsafe fn do_page_walk(
         | if allow_user { 0 } else { TLB_NO_USER }
         | if is_in_mapped_range { TLB_IN_MAPPED_RANGE } else { 0 }
         | if global && 0 != cr4 & CR4_PGE { TLB_GLOBAL } else { 0 }
-        | if has_code { TLB_HAS_CODE } else { 0 };
+        | if has_code { TLB_HAS_CODE } else { 0 }
+        | if no_execute { TLB_NX } else { 0 };
 
     let tlb_entry = (high + memory::mem8 as u32) as i32 ^ page << 12 | info_bits as i32;
 
@@ -2215,14 +2234,15 @@ pub unsafe fn trigger_fault_end_jit() {
 ///   and finally calls trigger_fault_end_jit, which does the interrupt
 ///
 /// Non-jit resets the instruction pointer and does the PF interrupt directly
-pub unsafe fn trigger_pagefault(addr: i32, present: bool, write: bool, user: bool, jit: bool) {
+pub unsafe fn trigger_pagefault(addr: i32, present: bool, write: bool, user: bool, jit: bool, no_execute: bool) {
     if config::LOG_PAGE_FAULTS {
         dbg_log!(
-            "page fault{} w={} u={} p={} eip={:x} cr2={:x}",
+            "page fault{} w={} u={} p={} nx={} eip={:x} cr2={:x}",
             if jit { "jit" } else { "" },
             write as i32,
             user as i32,
             present as i32,
+            no_execute as i32,
             *previous_ip,
             addr
         );
@@ -2234,7 +2254,7 @@ pub unsafe fn trigger_pagefault(addr: i32, present: bool, write: bool, user: boo
     let page = ((addr as u32) >> 12) as i32;
     clear_tlb_code(page);
     tlb_data[page as usize] = 0;
-    let error_code = (user as i32) << 2 | (write as i32) << 1 | present as i32;
+    let error_code = (no_execute as i32) << 3 | (user as i32) << 2 | (write as i32) << 1 | present as i32;
     if jit {
         jit_fault = Some((CPU_EXCEPTION_PF, Some(error_code)));
     }
@@ -2899,6 +2919,9 @@ pub unsafe fn cycle_internal() {
                 if c.state_flags.ssize_32() != s.ssize_32() {
                     profiler::stat_increment(stat::RUN_INTERPRETED_DIFFERENT_STATE_SS32);
                 }
+                if c.state_flags.is_nx() != s.is_nx() {
+                    profiler::stat_increment(stat::RUN_INTERPRETED_DIFFERENT_STATE_NX);
+                }
             }
         },
     }
@@ -3015,7 +3038,7 @@ pub unsafe fn cycle_internal() {
 pub unsafe fn get_phys_eip() -> OrPageFault<u32> {
     let eip = *instruction_pointer;
     if 0 != eip & !0xFFF ^ *last_virt_eip {
-        *eip_phys = (translate_address_read(eip)? ^ eip as u32) as i32;
+        *eip_phys = (translate_address_read_exec(eip)? ^ eip as u32) as i32;
         *last_virt_eip = eip & !0xFFF
     }
     let phys_addr = (*eip_phys ^ eip) as u32;
