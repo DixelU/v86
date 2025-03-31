@@ -1081,6 +1081,18 @@
                 homepage: "https://9front.org/",
             },
             {
+                id: "9legacy",
+                memory_size: 512 * 1024 * 1024,
+                hda: {
+                    url: host + "9legacy.img",
+                    async: false,
+                    size: 16000000,
+                },
+                name: "9legacy",
+                homepage: "http://www.9legacy.org/",
+                //net_device_type: "none",
+            },
+            {
                 id: "mobius",
                 fda: {
                     url: host + "mobius-fd-release5.img",
@@ -2015,11 +2027,11 @@
                     }, CLEAR_STATS ? 5000 : 1000);
             }
 
-            if(["dsl", "helenos", "android", "android4", "redox", "beos"].includes(profile?.id))
+            if(["dsl", "helenos", "android", "android4", "redox", "beos", "9legacy"].includes(profile?.id))
             {
                 setTimeout(() => {
                     // hack: Start automatically
-                    emulator.keyboard_send_text("\n");
+                    emulator.keyboard_send_text(profile.id === "9legacy" ? "1\n" : "\n");
                 }, 3000);
             }
 
