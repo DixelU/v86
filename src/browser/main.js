@@ -9,6 +9,12 @@
     const DEFAULT_VGA_MEMORY_SIZE = 8;
     const DEFAULT_BOOT_ORDER = 0;
 
+    function query_append()
+    {
+        const version = $("version");
+        return version ? "?" + version.textContent : "";
+    }
+
     function set_title(text)
     {
         document.title = text + " - v86" +  (DEBUG ? " - debug" : "");
@@ -1430,7 +1436,7 @@
         {
             const link = document.createElement("link");
             link.rel = "prefetch";
-            link.href = "build/v86.wasm";
+            link.href = "build/v86.wasm" + query_append();
             document.head.appendChild(link);
         }
 
@@ -1942,6 +1948,7 @@
         }
 
         const emulator = new V86({
+            wasm_path: "build/" + (DEBUG ? "v86-debug.wasm" : "v86.wasm") + query_append(),
             screen: {
                 container: $("screen_container"),
                 use_graphical_text: false,
