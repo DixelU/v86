@@ -1925,7 +1925,7 @@ pub unsafe fn translate_address(
 pub unsafe fn translate_address_write_and_can_skip_dirty(address: i32) -> OrPageFault<(u32, bool)> {
     let mut entry = tlb_data[(address as u32 >> 12) as usize];
     let user = *cpl == 3;
-    if entry & (TLB_VALID | if user { TLB_NO_USER } else { 0 } | TLB_READONLY | TLB_NX) != TLB_VALID {
+    if entry & (TLB_VALID | if user { TLB_NO_USER } else { 0 } | TLB_READONLY) != TLB_VALID {
         entry = do_page_walk(address, true, false, user, false, true)?.get();
     }
     Ok((
@@ -1977,8 +1977,7 @@ pub unsafe fn do_page_walk(
             let pdpt_entry = *reg_pdpte.offset(((addr as u32) >> 30) as isize);
             if pdpt_entry as i32 & PAGE_TABLE_PRESENT_MASK == 0 {
                 if side_effects {
-                    // dbg_log!("PFR 1");
-                    trigger_pagefault(addr, false, for_writing, user, jit, for_execution);
+                    trigger_pagefault(addr, false, for_writing, for_execution, user, jit);
                 }
                 return Err(());
             }
@@ -1991,7 +1990,7 @@ pub unsafe fn do_page_walk(
                 "Unsupported: Page directory entry larger than 32 bits"
             );
 
-            allow_execution &= page_dir_entry as u64 & 0x8000_0000_0000_0000u64 != 0;
+            allow_execution = page_dir_entry as u64 & 0x8000_0000_0000_0000u64 == 0;
 
             (page_dir_addr, page_dir_entry as i32)
         }
@@ -2004,8 +2003,8 @@ pub unsafe fn do_page_walk(
 
         if page_dir_entry & PAGE_TABLE_PRESENT_MASK == 0 {
             if side_effects {
-                dbg_log!("PFR 2"); // todo check why this one is thrown sometimes
-                trigger_pagefault(addr, false, for_writing, user, jit, for_execution);
+                dbg_log!("PFR 2");
+                trigger_pagefault(addr, false, for_writing, for_execution, user, jit);
             }
             return Err(());
         }
@@ -2013,7 +2012,7 @@ pub unsafe fn do_page_walk(
         let kernel_write_override = !user && 0 == cr0 & CR0_WP;
         let mut allow_write = page_dir_entry & PAGE_TABLE_RW_MASK != 0;
         allow_user &= page_dir_entry & PAGE_TABLE_USER_MASK != 0;
-        allow_execution &= !pae || page_dir_entry & PAGE_TABLE_NX_MASK != 0;
+        allow_execution &= !pae || (page_dir_entry & PAGE_TABLE_NX_MASK == 0);
 
         if 0 != page_dir_entry & PAGE_TABLE_PSE_MASK && 0 != cr4 & CR4_PSE {
             // size bit is set
@@ -2024,8 +2023,8 @@ pub unsafe fn do_page_walk(
 
             if fault_at_write || fault_user || fault_at_execution {
                 if side_effects {
-                    dbg_log!("PFR 3");
-                    trigger_pagefault(addr, true, for_writing, user, jit, for_execution);
+                    dbg_log!("PFR 3 fax={}", fault_at_execution);
+                    trigger_pagefault(addr, true, for_writing, for_execution, user, jit);
                 }
                 return Err(());
             }
@@ -2058,7 +2057,7 @@ pub unsafe fn do_page_walk(
                     "Unsupported: Page table entry larger than 32 bits"
                 );
 
-                allow_execution = page_table_entry as u64 & 0x8000_0000_0000_0000u64 != 0;
+                allow_execution = page_table_entry as u64 & 0x8000_0000_0000_0000u64 == 0;
 
                 (page_table_addr, page_table_entry as i32)
             }
@@ -2067,13 +2066,15 @@ pub unsafe fn do_page_walk(
                     (page_dir_entry as u32 & 0xFFFFF000) + (((addr as u32 >> 12) & 0x3FF) << 2);
                 let page_table_entry = memory::read32s(page_table_addr);
 
+                allow_execution = true;
+
                 (page_table_addr, page_table_entry)
             };
 
             let present = page_table_entry & PAGE_TABLE_PRESENT_MASK != 0;
             allow_write &= page_table_entry & PAGE_TABLE_RW_MASK != 0;
             allow_user &= page_table_entry & PAGE_TABLE_USER_MASK != 0;
-            allow_execution &= !pae || page_table_entry & PAGE_TABLE_NX_MASK != 0;
+            allow_execution &= !pae || (page_table_entry & PAGE_TABLE_NX_MASK == 0);
 
             if !present
                 || for_writing && !allow_write && !kernel_write_override
@@ -2081,8 +2082,8 @@ pub unsafe fn do_page_walk(
                 || for_execution && !allow_execution
             {
                 if side_effects {
-                    dbg_log!("PFR 4");
-                    trigger_pagefault(addr, present, for_writing, user, jit, for_execution);
+                    dbg_log!("PFR 4 fax={}", for_execution && !allow_execution);
+                    trigger_pagefault(addr, present, for_writing, for_execution, user, jit);
                 }
                 return Err(());
             }
@@ -2143,13 +2144,15 @@ pub unsafe fn do_page_walk(
         // address part)
         true
     };
+
+    let nx_flag = if for_execution { !allow_execution } else { false };
     let info_bits = TLB_VALID
         | if for_writing { 0 } else { TLB_READONLY }
         | if allow_user { 0 } else { TLB_NO_USER }
         | if is_in_mapped_range { TLB_IN_MAPPED_RANGE } else { 0 }
         | if global && 0 != cr4 & CR4_PGE { TLB_GLOBAL } else { 0 }
         | if has_code { TLB_HAS_CODE } else { 0 }
-        | if for_execution { TLB_NX } else { 0 };
+        | if nx_flag { TLB_NX } else { 0 };
 
     let tlb_entry = (high + memory::mem8 as u32) as i32 ^ page << 12 | info_bits as i32;
 
@@ -2275,7 +2278,7 @@ pub unsafe fn trigger_fault_end_jit() {
 ///   and finally calls trigger_fault_end_jit, which does the interrupt
 ///
 /// Non-jit resets the instruction pointer and does the PF interrupt directly
-pub unsafe fn trigger_pagefault(addr: i32, present: bool, write: bool, user: bool, jit: bool, no_execute: bool) {
+pub unsafe fn trigger_pagefault(addr: i32, present: bool, write: bool, execute: bool, user: bool, jit: bool) {
     if config::LOG_PAGE_FAULTS {
         dbg_log!(
             "page fault{} w={} u={} p={} nx={} eip={:x} cr2={:x}",
@@ -2283,7 +2286,7 @@ pub unsafe fn trigger_pagefault(addr: i32, present: bool, write: bool, user: boo
             write as i32,
             user as i32,
             present as i32,
-            no_execute as i32,
+            execute as i32,
             *previous_ip,
             addr
         );
@@ -2295,7 +2298,7 @@ pub unsafe fn trigger_pagefault(addr: i32, present: bool, write: bool, user: boo
     let page = ((addr as u32) >> 12) as i32;
     clear_tlb_code(page);
     tlb_data[page as usize] = 0;
-    let error_code = (no_execute as i32) << 3 | (user as i32) << 2 | (write as i32) << 1 | present as i32;
+    let error_code = (execute as i32) << 3 | (user as i32) << 2 | (write as i32) << 1 | present as i32;
     if jit {
         jit_fault = Some((CPU_EXCEPTION_PF, Some(error_code)));
     }
