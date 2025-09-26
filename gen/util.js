@@ -18,7 +18,8 @@ function hex(n, pad)
 
 function mkdirpSync(dir)
 {
-    fs.mkdirSync(dir, { recursive: true });
+    if (!fs.existsSync(dir))
+        fs.mkdirSync(dir, { recursive: true });
 }
 
 function get_switch_value(arg_switch)
