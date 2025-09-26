@@ -1913,8 +1913,8 @@ pub unsafe fn translate_address(
     if entry
         & (TLB_VALID
             | if user { TLB_NO_USER } else { 0 }
-            | if for_writing { TLB_READONLY } else { 0 })
-            | if for_execution { TLB_NX } else { 0 }
+            | if for_writing { TLB_READONLY } else { 0 }
+            | if for_execution { TLB_NX } else { 0 })
         != TLB_VALID
     {
         entry = do_page_walk(address, for_writing, for_execution, user, jit, side_effects)?.get();
@@ -1949,7 +1949,7 @@ pub unsafe fn translate_address_write_and_can_skip_dirty(address: i32) -> OrPage
 pub unsafe fn do_page_walk(
     addr: i32,
     for_writing: bool,
-    for_execution: bool,
+    /*mut */for_execution: bool,
     user: bool,
     jit: bool,
     side_effects: bool,
@@ -1991,6 +1991,7 @@ pub unsafe fn do_page_walk(
             );
 
             //allow_execution = page_dir_entry as u64 & 0x8000_0000_0000_0000u64 == 0;
+            // probably has to be --- for_execution |= page_dir_entry as u64 & 0x8000_0000_0000_0000u64 == 0;
 
             (page_dir_addr, page_dir_entry as i32)
         }
@@ -2076,11 +2077,11 @@ pub unsafe fn do_page_walk(
             allow_user &= page_table_entry & PAGE_TABLE_USER_MASK != 0;
             //allow_execution &= !pae || (page_table_entry & PAGE_TABLE_NX_MASK == 0);
 
-            if !present
-                || for_writing && !allow_write && !kernel_write_override
-                || user && !allow_user
-                || for_execution && !allow_execution
-            {
+            let fault_at_write = for_writing && !allow_write && !kernel_write_override;
+            let fault_user = user && !allow_user;
+            let fault_at_execution = for_execution && !allow_execution;
+
+            if !present || fault_at_write || fault_user || fault_at_execution {
                 if side_effects {
                     dbg_log!("PFR 4 fax={}", for_execution && !allow_execution);
                     trigger_pagefault(addr, present, for_writing, for_execution, user, jit);
@@ -2145,7 +2146,7 @@ pub unsafe fn do_page_walk(
         true
     };
 
-    let nx_flag = if for_execution { !allow_execution } else { false };
+    let nx_flag = if 0 != cr4 & CR4_PAE && for_execution { !allow_execution } else { false };
     let info_bits = TLB_VALID
         | if for_writing { 0 } else { TLB_READONLY }
         | if allow_user { 0 } else { TLB_NO_USER }
