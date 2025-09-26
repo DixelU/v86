@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 "use strict";
 
-const assert = require("assert").strict;
+const assert = require("assert");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");

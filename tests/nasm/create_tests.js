@@ -19,7 +19,7 @@ const OF = 1 << 11;
 const BUILD_DIR = __dirname + "/build/";
 const LOG_VERBOSE = false;
 
-const assert = require("assert").strict;
+const assert = require("assert");
 const fs = require("fs");
 const fse = require("fs/promises");
 const path = require("path");

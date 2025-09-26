@@ -8,7 +8,7 @@ const USE_VIRTIO = !!process.env.USE_VIRTIO;
 
 const V86 = require(`../../build/${TEST_RELEASE_BUILD ? "libv86" : "libv86-debug"}.js`).V86;
 
-const assert = require("assert").strict;
+const assert = require("assert");
 const SHOW_LOGS = false;
 
 function wait(time) {

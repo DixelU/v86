@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 "use strict";
 
-const assert = require("assert").strict;
+const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 const x86_table = require("./x86_table");

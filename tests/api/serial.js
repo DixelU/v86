@@ -3,7 +3,7 @@
 
 const TEST_RELEASE_BUILD = +process.env.TEST_RELEASE_BUILD;
 
-const assert = require("assert").strict;
+const assert = require("assert");
 const fs = require("fs");
 const crypto = require("crypto");
 var V86 = require(`../../build/${TEST_RELEASE_BUILD ? "libv86" : "libv86-debug"}.js`).V86;
