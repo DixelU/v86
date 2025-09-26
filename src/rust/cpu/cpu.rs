@@ -1990,7 +1990,7 @@ pub unsafe fn do_page_walk(
                 "Unsupported: Page directory entry larger than 32 bits"
             );
 
-            allow_execution = page_dir_entry as u64 & 0x8000_0000_0000_0000u64 == 0;
+            //allow_execution = page_dir_entry as u64 & 0x8000_0000_0000_0000u64 == 0;
 
             (page_dir_addr, page_dir_entry as i32)
         }
@@ -2012,7 +2012,7 @@ pub unsafe fn do_page_walk(
         let kernel_write_override = !user && 0 == cr0 & CR0_WP;
         let mut allow_write = page_dir_entry & PAGE_TABLE_RW_MASK != 0;
         allow_user &= page_dir_entry & PAGE_TABLE_USER_MASK != 0;
-        allow_execution &= !pae || (page_dir_entry & PAGE_TABLE_NX_MASK == 0);
+        //allow_execution &= !pae || (page_dir_entry & PAGE_TABLE_NX_MASK == 0);
 
         if 0 != page_dir_entry & PAGE_TABLE_PSE_MASK && 0 != cr4 & CR4_PSE {
             // size bit is set
@@ -2057,7 +2057,7 @@ pub unsafe fn do_page_walk(
                     "Unsupported: Page table entry larger than 32 bits"
                 );
 
-                allow_execution = page_table_entry as u64 & 0x8000_0000_0000_0000u64 == 0;
+                //allow_execution = page_table_entry as u64 & 0x8000_0000_0000_0000u64 == 0;
 
                 (page_table_addr, page_table_entry as i32)
             }
@@ -2074,7 +2074,7 @@ pub unsafe fn do_page_walk(
             let present = page_table_entry & PAGE_TABLE_PRESENT_MASK != 0;
             allow_write &= page_table_entry & PAGE_TABLE_RW_MASK != 0;
             allow_user &= page_table_entry & PAGE_TABLE_USER_MASK != 0;
-            allow_execution &= !pae || (page_table_entry & PAGE_TABLE_NX_MASK == 0);
+            //allow_execution &= !pae || (page_table_entry & PAGE_TABLE_NX_MASK == 0);
 
             if !present
                 || for_writing && !allow_write && !kernel_write_override
