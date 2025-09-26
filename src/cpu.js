@@ -2,7 +2,7 @@ import {
     LOG_CPU, LOG_BIOS,
     FW_CFG_SIGNATURE, FW_CFG_SIGNATURE_QEMU,
     WASM_TABLE_SIZE, WASM_TABLE_OFFSET, FW_CFG_ID,
-    FW_CFG_RAM_SIZE, FW_CFG_NB_CPUS, FW_CFG_MAX_CPUS,
+    FW_CFG_RAM_SIZE, FW_CFG_NB_CPUS, FW_CFG_MAX_CPUS, FW_CFG_NOGRAPHIC,
     FW_CFG_NUMA, FW_CFG_FILE_DIR, FW_CFG_FILE_START,
     FW_CFG_CUSTOM_START, FLAGS_DEFAULT,
     MMAP_BLOCK_BITS, MMAP_BLOCK_SIZE, MMAP_MAX,
@@ -1130,7 +1130,7 @@ CPU.prototype.init = function(settings, device_bus)
 
             this.fw_value = buffer8;
         }
-        else if(value >= FW_CFG_CUSTOM_START && value < FW_CFG_FILE_START)
+        else if(value >= FW_CFG_CUSTOM_START && value < FW_CFG_FILE_START || value === FW_CFG_NOGRAPHIC)
         {
             this.fw_value = i32(0);
         }

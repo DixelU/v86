@@ -1976,6 +1976,7 @@ pub unsafe fn do_page_walk(
             let pdpt_entry = *reg_pdpte.offset(((addr as u32) >> 30) as isize);
             if pdpt_entry as i32 & PAGE_TABLE_PRESENT_MASK == 0 {
                 if side_effects {
+                    dbg_log!("PFR 1");
                     trigger_pagefault(addr, false, for_writing, user, jit, no_execute);
                 }
                 return Err(());
@@ -1989,7 +1990,7 @@ pub unsafe fn do_page_walk(
                 "Unsupported: Page directory entry larger than 32 bits"
             );
 
-            no_execute &= page_dir_entry & 0x8000_0000_0000_0000u64 as i64 != 0;
+            no_execute &= page_dir_entry as u64 & 0x8000_0000_0000_0000u64 != 0;
 
             (page_dir_addr, page_dir_entry as i32)
         }
@@ -1997,13 +1998,14 @@ pub unsafe fn do_page_walk(
             let page_dir_addr = *cr.offset(3) as u32 + (((addr as u32) >> 22) << 2);
             let page_dir_entry = memory::read32s(page_dir_addr);
 
-            no_execute &= false; // in non PAE modes NX bit is disabled
+            no_execute = false; // in non PAE modes NX bit is disabled
 
             (page_dir_addr, page_dir_entry)
         };
 
         if page_dir_entry & PAGE_TABLE_PRESENT_MASK == 0 {
             if side_effects {
+                dbg_log!("PFR 2");
                 trigger_pagefault(addr, false, for_writing, user, jit, no_execute);
             }
             return Err(());
@@ -2019,10 +2021,11 @@ pub unsafe fn do_page_walk(
 
             let fault_at_write = for_writing && !allow_write && !kernel_write_override;
             let fault_user = user && !allow_user;
-            let fault_at_execution = !no_execute && !allow_execution;
+            let fault_at_execution = no_execute && !allow_execution;
 
             if fault_at_write || fault_user || fault_at_execution {
                 if side_effects {
+                    dbg_log!("PFR 3");
                     trigger_pagefault(addr, true, for_writing, user, jit, no_execute);
                 }
                 return Err(());
@@ -2057,7 +2060,7 @@ pub unsafe fn do_page_walk(
                     "Unsupported: Page table entry larger than 32 bits"
                 );
 
-                no_execute &= page_table_entry & 0x8000_0000_0000_0000u64 as i64 != 0;
+                no_execute &= page_dir_entry as u64 & 0x8000_0000_0000_0000u64 != 0;
 
                 (page_table_addr, page_table_entry as i32)
             }
@@ -2066,7 +2069,8 @@ pub unsafe fn do_page_walk(
                     (page_dir_entry as u32 & 0xFFFFF000) + (((addr as u32 >> 12) & 0x3FF) << 2);
                 let page_table_entry = memory::read32s(page_table_addr);
 
-                no_execute &= false; // in non PAE modes NX bit is disabled
+                dbg_log!("PAE forced nx=0");
+                no_execute = false; // in non PAE modes NX bit is always enabled
 
                 (page_table_addr, page_table_entry)
             };
@@ -2079,9 +2083,10 @@ pub unsafe fn do_page_walk(
             if !present
                 || for_writing && !allow_write && !kernel_write_override
                 || user && !allow_user
-                || !no_execute && !allow_execution
+                || no_execute && !allow_execution
             {
                 if side_effects {
+                    dbg_log!("PFR 4");
                     trigger_pagefault(addr, present, for_writing, user, jit, no_execute);
                 }
                 return Err(());
