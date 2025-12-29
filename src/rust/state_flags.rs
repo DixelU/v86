@@ -7,6 +7,7 @@ impl CachedStateFlags {
     const MASK_SS32: u8 = 1 << 1;
     const MASK_CPL3: u8 = 1 << 2;
     const MASK_FLAT_SEGS: u8 = 1 << 3;
+    const MASK_IS_NX: u8 = 1 << 4;
 
     pub const EMPTY: CachedStateFlags = CachedStateFlags(0);
 
@@ -24,4 +25,5 @@ impl CachedStateFlags {
     pub fn has_flat_segmentation(&self) -> bool { self.0 & CachedStateFlags::MASK_FLAT_SEGS != 0 }
     pub fn is_32(&self) -> bool { self.0 & CachedStateFlags::MASK_IS_32 != 0 }
     pub fn ssize_32(&self) -> bool { self.0 & CachedStateFlags::MASK_SS32 != 0 }
+    pub fn is_nx(&self) -> bool { self.0 & CachedStateFlags::MASK_IS_NX != 0 }
 }

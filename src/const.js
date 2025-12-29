@@ -115,6 +115,7 @@ export const CR4_PAE = 1 << 5;
 export const FW_CFG_SIGNATURE = 0x00;
 export const FW_CFG_ID = 0x01;
 export const FW_CFG_RAM_SIZE = 0x03;
+export const FW_CFG_NOGRAPHIC  = 0x04;
 export const FW_CFG_NB_CPUS = 0x05;
 export const FW_CFG_MAX_CPUS = 0x0F;
 export const FW_CFG_NUMA = 0x0D;
