@@ -4772,6 +4772,7 @@ pub unsafe fn reset_cpu() {
     *last_op_size = 0;
 
     *efer = 0;
+    *pat = 0x0007_0406_0007_0406;
 
     set_tsc(0, 0);
 
