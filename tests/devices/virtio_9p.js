@@ -836,22 +836,31 @@ const tests =
             emulator.serial0_send("mkfifo /mnt/fifo1\n");
             emulator.serial0_send("mkfifo /mnt/fifo2\n");
 
+            // Each background flock must hold its lock before the next contender is
+            // started: when several waiters are woken by an unlock, the guest scheduler
+            // decides which one gets the lock first.
             emulator.serial0_send("flock -s /mnt/file -c 'cat /mnt/fifo1 >> /mnt/file' &\n");
+            emulator.serial0_send("sleep 0.1\n");
             emulator.serial0_send("flock -s /mnt/file -c 'echo lock-shared-2 >> /mnt/file' \n");
             emulator.serial0_send("flock -xn /mnt/file -c 'echo lock unblocked! >> /mnt/logs' \n");
             emulator.serial0_send("echo lock-shared-1 > /mnt/fifo1\n");
+            emulator.serial0_send("wait\n");
 
             emulator.serial0_send("flock -x /mnt/file -c 'cat /mnt/fifo1 >> /mnt/file' &\n");
+            emulator.serial0_send("sleep 0.1\n");
             emulator.serial0_send("flock -x /mnt/file -c 'echo lock-exclusive-2 >> /mnt/file' &\n");
             emulator.serial0_send("flock -sn /mnt/file -c 'echo lock unblocked! >> /mnt/logs' \n");
             emulator.serial0_send("echo lock-exclusive-1 > /mnt/fifo1\n");
+            emulator.serial0_send("wait\n");
 
             emulator.serial0_send("flock -s /mnt/file -c 'cat /mnt/fifo1 >> /mnt/file' &\n");
             emulator.serial0_send("flock -s /mnt/file -c 'cat /mnt/fifo2 >> /mnt/file' &\n");
+            emulator.serial0_send("sleep 0.1\n");
             emulator.serial0_send("flock -x /mnt/file -c 'echo lock-exclusive-3 >> /mnt/file' &\n");
             emulator.serial0_send("echo lock-shared-4 > /mnt/fifo2\n");
             emulator.serial0_send("sleep 0.1\n");
             emulator.serial0_send("echo lock-shared-3 > /mnt/fifo1\n");
+            emulator.serial0_send("wait\n");
 
             emulator.serial0_send("echo start-capture;\\\n");
             emulator.serial0_send("cat /mnt/file;\\\n");
